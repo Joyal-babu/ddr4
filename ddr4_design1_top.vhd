@@ -32,9 +32,25 @@ use IEEE.STD_LOGIC_1164.ALL;
 --use UNISIM.VComponents.all;
 
 entity ddr4_design1_top is
-    Port ( sys_clk_p : in STD_LOGIC;
-           sys_clk_n : in STD_LOGIC;
-           sys_rst : in STD_LOGIC);
+    Port ( sys_clk_p         : in STD_LOGIC;
+           sys_clk_n         : in STD_LOGIC;
+           sys_rst           : in STD_LOGIC;
+           
+           c0_ddr4_adr       : out   STD_LOGIC_VECTOR(16 DOWNTO 0);    
+           c0_ddr4_ba        : out   STD_LOGIC_VECTOR(1 DOWNTO 0);     
+           c0_ddr4_cke       : out   STD_LOGIC_VECTOR(0 DOWNTO 0);     
+           c0_ddr4_cs_n      : out   STD_LOGIC_VECTOR(0 DOWNTO 0);    
+           c0_ddr4_dm_dbi_n  : inout STD_LOGIC_VECTOR(7 DOWNTO 0);
+           c0_ddr4_dq        : inout STD_LOGIC_VECTOR(63 DOWNTO 0);     
+           c0_ddr4_dqs_c     : inout STD_LOGIC_VECTOR(7 DOWNTO 0);   
+           c0_ddr4_dqs_t     : inout STD_LOGIC_VECTOR(7 DOWNTO 0);   
+           c0_ddr4_odt       : out   STD_LOGIC_VECTOR(0 DOWNTO 0);     
+           c0_ddr4_bg        : out   STD_LOGIC_VECTOR(0 DOWNTO 0);      
+           c0_ddr4_reset_n   : out   STD_LOGIC;                    
+           c0_ddr4_act_n     : out   STD_LOGIC;                      
+           c0_ddr4_ck_c      : out   STD_LOGIC_VECTOR(0 DOWNTO 0);    
+           c0_ddr4_ck_t      : out   STD_LOGIC_VECTOR(0 DOWNTO 0)
+           );
 end ddr4_design1_top;
 
 architecture Behavioral of ddr4_design1_top is
@@ -45,6 +61,8 @@ architecture Behavioral of ddr4_design1_top is
            init_calib_complete : in STD_LOGIC;
            app_rdy             : in STD_LOGIC;
            app_wdf_rdy         : in STD_LOGIC;
+           rd_data_valid       : in  STD_LOGIC;
+           rd_data             : in  STD_LOGIC_VECTOR(511 downto 0);
            app_addr            : out STD_LOGIC_VECTOR(27 DOWNTO 0);
            app_cmd             : out STD_LOGIC_VECTOR(2 DOWNTO 0);
            app_en              : out STD_LOGIC;
@@ -72,17 +90,35 @@ architecture Behavioral of ddr4_design1_top is
            ddr4_ui_clk                : out STD_LOGIC;
            ddr4_ui_clk_sync_rst       : out STD_LOGIC;
            ddr4_app_rdy               : out STD_LOGIC;  
-           ddr4_app_wdf_rdy           : out STD_LOGIC   
+           ddr4_app_wdf_rdy           : out STD_LOGIC;
+           
+           c0_ddr4_adr                : out   STD_LOGIC_VECTOR(16 DOWNTO 0); 
+           c0_ddr4_ba                 : out   STD_LOGIC_VECTOR(1 DOWNTO 0);  
+           c0_ddr4_cke                : out   STD_LOGIC_VECTOR(0 DOWNTO 0);  
+           c0_ddr4_cs_n               : out   STD_LOGIC_VECTOR(0 DOWNTO 0);  
+           c0_ddr4_dm_dbi_n           : inout STD_LOGIC_VECTOR(7 DOWNTO 0);  
+           c0_ddr4_dq                 : inout STD_LOGIC_VECTOR(63 DOWNTO 0); 
+           c0_ddr4_dqs_c              : inout STD_LOGIC_VECTOR(7 DOWNTO 0);  
+           c0_ddr4_dqs_t              : inout STD_LOGIC_VECTOR(7 DOWNTO 0);  
+           c0_ddr4_odt                : out   STD_LOGIC_VECTOR(0 DOWNTO 0);  
+           c0_ddr4_bg                 : out   STD_LOGIC_VECTOR(0 DOWNTO 0);  
+           c0_ddr4_reset_n            : out   STD_LOGIC;                     
+           c0_ddr4_act_n              : out   STD_LOGIC;                     
+           c0_ddr4_ck_c               : out   STD_LOGIC_VECTOR(0 DOWNTO 0);  
+           c0_ddr4_ck_t               : out   STD_LOGIC_VECTOR(0 DOWNTO 0);  
+           rd_data                    : out   std_logic_vector(511 downto 0);
+           rd_data_valid              : out   std_logic;                     
+           rd_data_end                : out   std_logic                      
            );       
     end component;
     
     constant active_low : std_logic := '0';
     
-    signal ddr4_ui_clock, ddr4_ui_reset : std_logic;
+    signal ddr4_ui_clock, ddr4_ui_reset, rd_data_valid : std_logic;
     signal ddr4_init_calib_complete, ddr4_app_rdy, ddr4_app_wdf_rdy, app_en, app_wdf_end, app_wdf_wren : std_logic;
     signal app_addr      : std_logic_vector(27 downto 0);
     signal app_cmd       : std_logic_vector(2 downto 0);
-    signal app_wdf_data  : std_logic_vector(511 downto 0);
+    signal app_wdf_data, rd_data  : std_logic_vector(511 downto 0);
     signal app_wdf_mask  : std_logic_vector(63 downto 0);
     
 begin
@@ -105,7 +141,25 @@ begin
             ddr4_ui_clk              => ddr4_ui_clock, 
             ddr4_ui_clk_sync_rst     => ddr4_ui_reset, 
             ddr4_app_rdy             => ddr4_app_rdy, 
-            ddr4_app_wdf_rdy         => ddr4_app_wdf_rdy
+            ddr4_app_wdf_rdy         => ddr4_app_wdf_rdy,
+            
+            c0_ddr4_adr              => c0_ddr4_adr     ,
+            c0_ddr4_ba               => c0_ddr4_ba      ,
+            c0_ddr4_cke              => c0_ddr4_cke     ,
+            c0_ddr4_cs_n             => c0_ddr4_cs_n    ,
+            c0_ddr4_dm_dbi_n         => c0_ddr4_dm_dbi_n,
+            c0_ddr4_dq               => c0_ddr4_dq      ,
+            c0_ddr4_dqs_c            => c0_ddr4_dqs_c   ,
+            c0_ddr4_dqs_t            => c0_ddr4_dqs_t   ,
+            c0_ddr4_odt              => c0_ddr4_odt     ,
+            c0_ddr4_bg               => c0_ddr4_bg      ,
+            c0_ddr4_reset_n          => c0_ddr4_reset_n ,
+            c0_ddr4_act_n            => c0_ddr4_act_n   ,
+            c0_ddr4_ck_c             => c0_ddr4_ck_c    ,
+            c0_ddr4_ck_t             => c0_ddr4_ck_t    ,
+            rd_data                  => rd_data         ,
+            rd_data_valid            => rd_data_valid   ,
+            rd_data_end              => open     
         
         );
     
@@ -116,7 +170,8 @@ begin
             init_calib_complete => ddr4_init_calib_complete,
             app_rdy             => ddr4_app_rdy,
             app_wdf_rdy         => ddr4_app_wdf_rdy,
-            
+            rd_data_valid       => rd_data_valid,
+            rd_data             => rd_data,
             app_addr            => app_addr,
             app_cmd             => app_cmd,
             app_en              => app_en,
