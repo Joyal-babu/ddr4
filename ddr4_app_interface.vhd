@@ -75,66 +75,102 @@ architecture Behavioral of ddr4_app_interface is
         );                                                               
 END COMPONENT;
 
-    constant num_writes : integer := 2048;
-    constant num_reads  : integer := 2048;
+    COMPONENT vio_0
+    PORT (
+        clk : IN STD_LOGIC;
+        probe_out0 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0) 
+    );
+    END COMPONENT;
+
+    constant num_writes : integer := 50;
+    constant num_reads  : integer := 50;
+    constant wait_count : integer := 20;
     
     signal wr_count    : std_logic_vector(15 downto 0);
     signal rd_count    : std_logic_vector(15 downto 0);
+    signal st_wait_cnt : std_logic_vector(15 downto 0);
     signal begin_addr  : std_logic_vector(27 downto 0) := (others => '0');
     
     signal app_addr_i, wr_addr, rd_addr : std_logic_vector(27 downto 0);
     signal app_cmd_i                    : std_logic_vector(2 downto 0);
-    signal app_en_i                     : std_logic;
+    signal app_en_i, trig               : std_logic;
     signal app_wdf_data_i               : std_logic_vector(511 downto 0);
     signal wr_data                      : std_logic_vector(31 downto 0);
     signal app_wdf_end_i                : std_logic;
     signal app_wdf_mask_i               : std_logic_vector(63 downto 0);
     signal app_wdf_wren_i               : std_logic; 
     signal ip_enabled                   : std_logic;  
+    signal trig_edge                    : std_logic;
+    signal trig_edge_1                  : std_logic;
+    signal trig_edge_2                  : std_logic;
+    signal trig_edge_2_not              : std_logic;
+    signal wait_cnt_en                  : std_logic;
+
          
          
-    type ddr_sm is (st1_reset, st2_data_write, st3_data_read, st4_hold_state  );
+    type ddr_sm is (st1_reset, st2_data_write, st3_rd_st_wait, st4_data_read, st5_hold_state  );
     signal state, next_state : ddr_sm;
     
 
 begin
 
-    ip_enabled <= app_rdy and app_wdf_rdy;
-
+--    process(clock) 
+--    begin
+--        if(rising_edge(clock)) then
+--            ip_enabled <= app_rdy and app_wdf_rdy;
+--        end if;
+--    end process;
+    
     SYNC_PROC_ddr_sm : process (clock, reset)
     begin
         if(rising_edge(clock)) then
             if(reset = '1') then
                 state <= st1_reset;
-                app_addr     <= (others => '0');
-                app_cmd      <= (others => '0');
-                app_en       <= '0';
-                app_wdf_data <= (others => '0');
-                app_wdf_end  <= '0';
-                app_wdf_mask <= (others => '0');
-                app_wdf_wren <= '0';
             else    
-                state        <= next_state;
-                app_addr     <= app_addr_i;      
-                app_cmd      <= app_cmd_i;     
-                app_en       <= app_en_i;      
-                app_wdf_data <= app_wdf_data_i;
-                app_wdf_end  <= app_wdf_end_i; 
-                app_wdf_mask <= app_wdf_mask_i;
-                app_wdf_wren <= app_wdf_wren_i;
+                state <= next_state;
             end if;    
         end if;
     end process;
     
-    app_wdf_mask_i <= (others => '0');
+    app_wdf_mask_i  <= (others => '0');
+    app_addr        <= app_addr_i;      
+    app_cmd         <= app_cmd_i;     
+    app_en          <= app_en_i;      
+    app_wdf_data    <= app_wdf_data_i;
+    app_wdf_end     <= app_wdf_end_i; 
+    app_wdf_mask    <= app_wdf_mask_i;
+    app_wdf_wren    <= app_wdf_wren_i;
+    ip_enabled      <= app_rdy and app_wdf_rdy;
+    vio_inst : vio_0
+        PORT MAP (
+            clk => clock,
+            probe_out0(0) => trig
+    );
     
-    NEXT_STATE_DECODE_ddr_sm: process (state, init_calib_complete, wr_count, rd_count)
+    
+process(clock,reset)
+begin
+
+if(rising_edge(clock)) then
+    if(reset ='1') then
+        trig_edge_1<='0';
+        trig_edge_2<='0';
+    else    
+        trig_edge_1 <=trig;
+        trig_edge_2 <= trig_edge_1;
+     end if;
+    end if; 
+ end process;
+trig_edge_2_not     <=  not trig_edge_2;   
+trig_edge           <=  trig_edge_1 and trig_edge_2_not;
+    
+    NEXT_STATE_DECODE_ddr_sm: process (state, init_calib_complete, wr_count, rd_count, trig_edge, st_wait_cnt)
     begin
       next_state <= state;  
       case (state) is
       
          when st1_reset =>
-            if (init_calib_complete = '1') then
+            if (init_calib_complete = '1' and trig_edge='1') then
                next_state <= st2_data_write;
             else
                next_state <= st1_reset; 
@@ -144,19 +180,26 @@ begin
             if (wr_count < (num_writes-1)) then
                 next_state <= st2_data_write;
             elsif (wr_count = (num_writes-1)) then
-                next_state <= st3_data_read;
-            end if;         
+                next_state <= st3_rd_st_wait;
+            end if; 
+            
+         when st3_rd_st_wait =>
+            if(st_wait_cnt < (wait_count-1)) then
+                next_state <= st3_rd_st_wait;
+            else
+                next_state <= st4_data_read; 
+            end if;        
                        
-         when st3_data_read =>
+         when st4_data_read =>
             if (rd_count < (num_reads-1)) then
-                next_state <= st3_data_read;
+                next_state <= st4_data_read;
             elsif (rd_count = (num_reads-1)) then
-                next_state <= st4_hold_state;
+                next_state <= st5_hold_state;
             else 
                 next_state <= st1_reset; 
             end if; 
             
-        when st4_hold_state =>                             
+        when st5_hold_state =>                             
             next_state <= st1_reset;
                 
         when others =>
@@ -171,7 +214,8 @@ begin
             when  st1_reset => 
                 app_addr_i     <= (others => '0');
                 app_wdf_data_i <= (others => '0');
-                app_cmd_i      <= (others => '0');
+                app_cmd_i      <= "111";
+                wait_cnt_en    <= '0';
                 app_en_i       <= '0';  
                 app_wdf_end_i  <= '0';     
                 app_wdf_wren_i <= '0';
@@ -180,13 +224,21 @@ begin
                 app_cmd_i      <= "000";
                 app_addr_i     <= wr_addr;
                 app_wdf_data_i <= wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data & wr_data ;
-
+                wait_cnt_en    <= '0';
                 app_wdf_wren_i <= ip_enabled;
-                app_en_i       <= ip_enabled;
+                app_en_i       <= '1';
                 app_wdf_end_i  <= ip_enabled;
-
-                   
-            when  st3_data_read =>
+                
+            when st3_rd_st_wait =>
+                wait_cnt_en    <= '1'; 
+                app_cmd_i      <= "111";
+                app_addr_i     <= (others => '0');
+                app_wdf_data_i <= (others => '0');
+                app_wdf_wren_i <= '0';
+                app_en_i       <= '0';
+                app_wdf_end_i  <= '0';
+                 
+            when  st4_data_read =>
                 app_cmd_i      <= "001";
                 app_addr_i     <= rd_addr;
                 app_wdf_data_i <= (others => '0');
@@ -194,9 +246,9 @@ begin
                 app_wdf_wren_i <= '0';
                 app_en_i       <= app_rdy;
                 
-            when  st4_hold_state => 
+            when  st5_hold_state => 
                 app_en_i       <= '0';
-                app_cmd_i      <= "000";
+                app_cmd_i      <= "111";
                 app_addr_i     <= (others => '0');
                 app_wdf_data_i <= (others => '0');
                 app_wdf_end_i  <= '0';
@@ -242,9 +294,14 @@ begin
                 if(state = st1_reset) then
                     rd_addr        <= (others => '0');
                     rd_count       <= (others => '0');
-                elsif(state = st3_data_read and app_rdy = '1') then
-                    rd_addr  <= rd_addr + "1000";
-                    rd_count <= rd_count + '1'; 
+                elsif(state = st4_data_read and app_rdy = '1') then
+                   -- if(rd_data_valid = '1') then
+                        rd_addr  <= rd_addr + "1000";
+                        rd_count <= rd_count + '1';
+--                    else 
+--                        rd_addr  <= rd_addr;
+--                        rd_count <= rd_count;                   
+--                    end if; 
                 else
                     rd_addr  <= rd_addr;
                     rd_count <= rd_count;
@@ -252,6 +309,20 @@ begin
             end if;
        end if;
     end process; 
+    
+    
+    process(clock, reset)
+    begin
+        if(rising_edge(clock)) then
+            if(reset = '1') then
+                st_wait_cnt <= (others => '0');
+            elsif(wait_cnt_en = '1') then
+                st_wait_cnt <= st_wait_cnt + '1';
+            else
+                st_wait_cnt <= (others => '0');
+            end if;    
+        end if;
+    end process;
      
     ILA : ila_0
     port map(
